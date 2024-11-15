@@ -1,0 +1,76 @@
+import json
+import hashlib
+import re
+from collections import defaultdict, Counter
+
+# Load JSON file containing code duplication results
+with open("code_duplication_results.json", "r") as f:
+    data = json.load(f)
+
+# Containers for identified clones and reusable components
+clone_fragments = defaultdict(list)
+reusable_candidates = {}
+false_positives = []
+
+# Define regex patterns for detecting potential false positives (mock, test code)
+false_positive_patterns = re.compile(r"(mock|test|setup|demo|fixture)", re.IGNORECASE)
+
+# Define a function to tokenize and hash fragments for similarity comparison
+def hash_code_fragment(fragment):
+    # Normalize whitespace and hash to simplify exact/near duplicate detection
+    normalized_fragment = " ".join(fragment.split())
+    fragment_hash = hashlib.md5(normalized_fragment.encode("utf-8")).hexdigest()
+    return fragment_hash
+
+# Identify potential false positives based on patterns
+def is_false_positive(fragment):
+    return bool(false_positive_patterns.search(fragment))
+
+# Parse JSON data and categorize fragments
+for entry in data:
+    fragment = entry.get("fragment", "").strip()
+    first_file = entry.get("firstFile", {}).get("name", "")
+
+    # Filter out false positives
+    if is_false_positive(fragment):
+        false_positives.append({"file": first_file, "fragment": fragment})
+        continue  # Skip further processing for false positives
+
+    # Generate a hash for the code fragment
+    fragment_hash = hash_code_fragment(fragment)
+    clone_fragments[fragment_hash].append({"file": first_file, "fragment": fragment})
+
+# Identify reusable candidates and clones
+for fragment_hash, instances in clone_fragments.items():
+    if len(instances) > 1:
+        # Calculate a reuse score based on number of instances and length of code
+        reuse_score = len(instances) * len(instances[0]["fragment"])
+        reusable_candidates[fragment_hash] = {
+            "fragment": instances[0]["fragment"],
+            "files": [instance["file"] for instance in instances],
+            "score": reuse_score
+        }
+
+# Sort reusable candidates by reuse score
+sorted_reusable_candidates = sorted(
+    reusable_candidates.values(), key=lambda x: x["score"], reverse=True
+)
+
+# Display findings
+print("False Positives:")
+for fp in false_positives:
+    print(f"File: {fp['file']}\nFragment:\n{fp['fragment']}\n{'-' * 60}")
+
+print("\nTop Reusable Components (Ranked by Reuse Score):")
+for candidate in sorted_reusable_candidates[:10]:  # Top 10 for brevity
+    print(f"Code Fragment:\n{candidate['fragment']}")
+    print(f"Found in Files: {candidate['files']}")
+    print(f"Reuse Score: {candidate['score']}")
+    print(f"{'-' * 60}")
+
+print("\nAll Clone Fragments (Grouped):")
+for fragment_hash, instances in clone_fragments.items():
+    if len(instances) > 1:  # Only show clones found in multiple files
+        print(f"Code Fragment (Hash: {fragment_hash}):\n{instances[0]['fragment']}")
+        print(f"Cloned in Files: {[inst['file'] for inst in instances]}")
+        print(f"{'-' * 60}")
