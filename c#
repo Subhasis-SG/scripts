@@ -53,16 +53,14 @@ class Program
             Console.WriteLine("Processing duplicates...");
 
             // Process duplicates in parallel
-            var (clones, reusableComponents, falsePositives) = ProcessDuplicates(jsonData.Duplicates);
+            var (reusableComponents, falsePositives) = ProcessDuplicates(jsonData.Duplicates);
 
             // Display detailed results
-            DisplayResults("Found Clones", clones);
             DisplayResults("Found Reusable Components", reusableComponents);
             DisplayResults("Detected False Positives", falsePositives);
 
             // Display the counts
-            Console.WriteLine($"\nTotal Clones Found: {clones.Count}");
-            Console.WriteLine($"Total Reusable Components Found: {reusableComponents.Count}");
+            Console.WriteLine($"\nTotal Reusable Components Found: {reusableComponents.Count}");
             Console.WriteLine($"Total False Positives Found: {falsePositives.Count}");
 
             // Inform the user that the output has been written to the file
@@ -80,63 +78,45 @@ class Program
     }
 
     // Efficiently processes duplicates
-    static (Dictionary<string, List<Duplicate>>, List<Duplicate>, List<Duplicate>) ProcessDuplicates(List<Duplicate> duplicates)
+    static (List<Duplicate>, List<Duplicate>) ProcessDuplicates(List<Duplicate> duplicates)
     {
-        var cloneMap = new Dictionary<string, List<Duplicate>>();
         var reusableComponents = new List<Duplicate>();
         var falsePositives = new List<Duplicate>();
 
         foreach (var duplication in duplicates)
         {
-            // Null check for Fragment
-            if (duplication.Fragment != null)
-            {
-                // Find clones (group by code fragment)
-                if (!cloneMap.ContainsKey(duplication.Fragment))
-                {
-                    cloneMap[duplication.Fragment] = new List<Duplicate>();
-                }
-                cloneMap[duplication.Fragment].Add(duplication);
-            }
-
             // Identify reusable components (cross-file fragments)
             if (duplication.FirstFile?.Name != duplication.SecondFile?.Name)
             {
                 reusableComponents.Add(duplication);
             }
 
-            // Detect false positives (e.g., comment-only fragments)
-            if (!string.IsNullOrWhiteSpace(duplication.Fragment) && duplication.Fragment.TrimStart().StartsWith("//"))
+            // Detect false positives (e.g., comment-only fragments or "global using")
+            if (IsFalsePositive(duplication.Fragment))
             {
                 falsePositives.Add(duplication);
             }
         }
 
-        return (cloneMap, reusableComponents, falsePositives);
+        return (reusableComponents, falsePositives);
     }
 
-    // Display detailed results (Clones grouped by Fragment)
-    static void DisplayResults(string title, Dictionary<string, List<Duplicate>> result)
+    // Checks if the fragment is a false positive (e.g., comment-based or "global using")
+    static bool IsFalsePositive(string fragment)
     {
-        Console.WriteLine($"\n{title}:");
-        int count = 1;
-        foreach (var clone in result)
-        {
-            // Null check for Fragment key
-            if (clone.Key != null)
-            {
-                Console.WriteLine($"\n--- Clone {count++}:");
-                Console.WriteLine($"Fragment: {clone.Key}");
-                Console.WriteLine($"Occurrences: {clone.Value.Count}");
+        if (string.IsNullOrWhiteSpace(fragment))
+            return false;
 
-                foreach (var item in clone.Value)
-                {
-                    Console.WriteLine($"  First File: {item.FirstFile?.Name} -> Second File: {item.SecondFile?.Name}");
-                    Console.WriteLine($"  Fragment: {item.Fragment}");
-                    Console.WriteLine();
-                }
-            }
-        }
+        // Example of false positive patterns like global using or comments
+        string[] falsePositivePatterns = new[] 
+        { 
+            "global using", 
+            "//", 
+            "#include", 
+            "using"
+        };
+
+        return falsePositivePatterns.Any(pattern => fragment.Contains(pattern));
     }
 
     // Display detailed results for Reusable Components & False Positives
@@ -146,7 +126,6 @@ class Program
         int count = 1;
         foreach (var item in result)
         {
-            // Null check for Fragment
             if (item.Fragment != null)
             {
                 Console.WriteLine($"\n--- {title.Split(' ')[1]} {count++}:");
@@ -156,10 +135,11 @@ class Program
 
                 if (title == "Detected False Positives")
                 {
-                    Console.WriteLine("This is a comment-based fragment (false positive).");
+                    Console.WriteLine("This is a comment-based or 'global using' fragment (false positive).");
                 }
                 Console.WriteLine();
             }
         }
     }
 }
+
