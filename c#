@@ -1,146 +1,134 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Newtonsoft.Json;
-using System.Security.Cryptography;
-using System.Text.RegularExpressions;
 
 class Program
 {
-    static void Main()
+    public class FileLocation
     {
-        // Load JSON file
-        string jsonFilePath = "code_duplication_results.json"; // Update with your file path
-        string jsonData = File.ReadAllText(jsonFilePath);
+        public string Name { get; set; }
+        public int Start { get; set; }
+        public int End { get; set; }
+        public Location StartLoc { get; set; }
+        public Location EndLoc { get; set; }
+    }
 
-        // Parse JSON data
-        var entries = JsonConvert.DeserializeObject<List<CodeEntry>>(jsonData);
+    public class Location
+    {
+        public int Line { get; set; }
+        public int Column { get; set; }
+        public int Position { get; set; }
+    }
 
-        // Containers for results
-        var falsePositives = new List<CodeEntry>();
-        var cloneFragments = new Dictionary<string, List<CodeEntry>>();
-        var reusableCandidates = new Dictionary<string, ReusableCandidate>();
+    public class Duplicate
+    {
+        public string Format { get; set; }
+        public int Lines { get; set; }
+        public string Fragment { get; set; }
+        public int Tokens { get; set; }
+        public FileLocation FirstFile { get; set; }
+        public FileLocation SecondFile { get; set; }
+    }
 
-        // Regex for false positive patterns
-        var falsePositiveRegex = new Regex(@"mock|test|setup|demo|fixture", RegexOptions.IgnoreCase);
+    public class JsonData
+    {
+        public List<Duplicate> Duplicates { get; set; }
+    }
 
-        // Process each entry
-        foreach (var entry in entries)
+    static void Main(string[] args)
+    {
+        string filePath = "path_to_your_json_file.json";  // Specify your JSON file path here
+        var jsonData = ReadJsonFile(filePath);
+        
+        var clones = FindClones(jsonData.Duplicates);
+        var reusableComponents = FindReusableComponents(jsonData.Duplicates);
+        var falsePositives = DetectFalsePositives(jsonData.Duplicates);
+
+        // Display Clones
+        Console.WriteLine("Found Clones:");
+        foreach (var clone in clones)
         {
-            string normalizedFragment = NormalizeFragment(entry.Fragment);
-
-            // Check for false positives
-            if (falsePositiveRegex.IsMatch(normalizedFragment))
+            Console.WriteLine($"Fragment: {clone.Fragment.Substring(0, 50)}...");
+            Console.WriteLine($"Occurrences: {clone.Value.Count}");
+            foreach (var item in clone.Value)
             {
-                falsePositives.Add(entry);
-                continue;
+                Console.WriteLine($"  First File: {item.FirstFile.Name} -> Second File: {item.SecondFile.Name}");
             }
-
-            // Generate hash for code fragment
-            string fragmentHash = HashFragment(normalizedFragment);
-
-            // Group fragments by hash
-            if (!cloneFragments.ContainsKey(fragmentHash))
-            {
-                cloneFragments[fragmentHash] = new List<CodeEntry>();
-            }
-            cloneFragments[fragmentHash].Add(entry);
+            Console.WriteLine();
         }
 
-        // Identify reusable candidates
-        foreach (var pair in cloneFragments)
+        // Display Reusable Components
+        Console.WriteLine("Found Reusable Components:");
+        foreach (var component in reusableComponents)
         {
-            if (pair.Value.Count > 1) // Repeated fragments
-            {
-                var fragment = pair.Value.First();
-                var reuseScore = pair.Value.Count * fragment.Fragment.Length;
-
-                reusableCandidates[pair.Key] = new ReusableCandidate
-                {
-                    Fragment = fragment.Fragment,
-                    Files = pair.Value.Select(e => e.FirstFile.Name).ToList(),
-                    ReuseScore = reuseScore
-                };
-            }
+            Console.WriteLine($"Fragment: {component.Fragment.Substring(0, 50)}...");
+            Console.WriteLine($"First File: {component.FirstFile.Name}");
+            Console.WriteLine($"Second File: {component.SecondFile.Name}");
+            Console.WriteLine();
         }
 
-        // Output results
-        Console.WriteLine("False Positives:");
+        // Display False Positives
+        Console.WriteLine("Detected False Positives:");
         foreach (var fp in falsePositives)
         {
-            Console.WriteLine($"File: {fp.FirstFile.Name}");
-            Console.WriteLine($"Fragment:\n{fp.Fragment}");
-            Console.WriteLine(new string('-', 60));
+            Console.WriteLine($"Fragment: {fp.Fragment.Substring(0, 50)}...");
+            Console.WriteLine($"First File: {fp.FirstFile.Name}");
+            Console.WriteLine($"Second File: {fp.SecondFile.Name}");
+            Console.WriteLine();
         }
+    }
 
-        Console.WriteLine("\nTop Reusable Components (Ranked by Reuse Score):");
-        foreach (var candidate in reusableCandidates.Values.OrderByDescending(c => c.ReuseScore).Take(10)) // Top 10
-        {
-            Console.WriteLine($"Code Fragment:\n{candidate.Fragment}");
-            Console.WriteLine($"Found in Files: {string.Join(", ", candidate.Files)}");
-            Console.WriteLine($"Reuse Score: {candidate.ReuseScore}");
-            Console.WriteLine(new string('-', 60));
-        }
+    static JsonData ReadJsonFile(string filePath)
+    {
+        string jsonContent = File.ReadAllText(filePath);
+        return JsonConvert.DeserializeObject<JsonData>(jsonContent);
+    }
 
-        Console.WriteLine("\nAll Clone Fragments (Grouped):");
-        foreach (var pair in cloneFragments)
+    static Dictionary<string, List<Duplicate>> FindClones(List<Duplicate> duplicates)
+    {
+        var cloneMap = new Dictionary<string, List<Duplicate>>();
+
+        foreach (var duplication in duplicates)
         {
-            if (pair.Value.Count > 1) // Clones only
+            string fragment = duplication.Fragment;
+            if (!cloneMap.ContainsKey(fragment))
             {
-                Console.WriteLine($"Code Fragment (Hash: {pair.Key}):\n{pair.Value.First().Fragment}");
-                Console.WriteLine($"Cloned in Files: {string.Join(", ", pair.Value.Select(e => e.FirstFile.Name))}");
-                Console.WriteLine(new string('-', 60));
+                cloneMap[fragment] = new List<Duplicate>();
+            }
+            cloneMap[fragment].Add(duplication);
+        }
+
+        return cloneMap;
+    }
+
+    static List<Duplicate> FindReusableComponents(List<Duplicate> duplicates)
+    {
+        var reusableComponents = new List<Duplicate>();
+
+        foreach (var duplication in duplicates)
+        {
+            if (duplication.FirstFile.Name != duplication.SecondFile.Name)
+            {
+                reusableComponents.Add(duplication);
             }
         }
+
+        return reusableComponents;
     }
 
-    // Normalize a code fragment by removing extra whitespace
-    static string NormalizeFragment(string fragment)
+    static List<Duplicate> DetectFalsePositives(List<Duplicate> duplicates)
     {
-        return string.Join(" ", fragment.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries));
-    }
+        var falsePositives = new List<Duplicate>();
 
-    // Generate a hash for a code fragment
-    static string HashFragment(string fragment)
-    {
-        using (var md5 = MD5.Create())
+        foreach (var duplication in duplicates)
         {
-            var hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(fragment));
-            return BitConverter.ToString(hashBytes).Replace("-", "").ToLower();
+            if (duplication.Fragment.TrimStart().StartsWith("//"))
+            {
+                falsePositives.Add(duplication);
+            }
         }
+
+        return falsePositives;
     }
-}
-
-// Classes for JSON parsing and reusable candidates
-public class CodeEntry
-{
-    public string Format { get; set; }
-    public int Lines { get; set; }
-    public string Fragment { get; set; }
-    public int Tokens { get; set; }
-    public FileDetail FirstFile { get; set; }
-}
-
-public class FileDetail
-{
-    public string Name { get; set; }
-    public int Start { get; set; }
-    public int End { get; set; }
-    public Location StartLoc { get; set; }
-    public Location EndLoc { get; set; }
-}
-
-public class Location
-{
-    public int Line { get; set; }
-    public int Column { get; set; }
-    public int Position { get; set; }
-}
-
-public class ReusableCandidate
-{
-    public string Fragment { get; set; }
-    public List<string> Files { get; set; }
-    public int ReuseScore { get; set; }
 }
