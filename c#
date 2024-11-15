@@ -1,0 +1,146 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Newtonsoft.Json;
+using System.Security.Cryptography;
+using System.Text.RegularExpressions;
+
+class Program
+{
+    static void Main()
+    {
+        // Load JSON file
+        string jsonFilePath = "code_duplication_results.json"; // Update with your file path
+        string jsonData = File.ReadAllText(jsonFilePath);
+
+        // Parse JSON data
+        var entries = JsonConvert.DeserializeObject<List<CodeEntry>>(jsonData);
+
+        // Containers for results
+        var falsePositives = new List<CodeEntry>();
+        var cloneFragments = new Dictionary<string, List<CodeEntry>>();
+        var reusableCandidates = new Dictionary<string, ReusableCandidate>();
+
+        // Regex for false positive patterns
+        var falsePositiveRegex = new Regex(@"mock|test|setup|demo|fixture", RegexOptions.IgnoreCase);
+
+        // Process each entry
+        foreach (var entry in entries)
+        {
+            string normalizedFragment = NormalizeFragment(entry.Fragment);
+
+            // Check for false positives
+            if (falsePositiveRegex.IsMatch(normalizedFragment))
+            {
+                falsePositives.Add(entry);
+                continue;
+            }
+
+            // Generate hash for code fragment
+            string fragmentHash = HashFragment(normalizedFragment);
+
+            // Group fragments by hash
+            if (!cloneFragments.ContainsKey(fragmentHash))
+            {
+                cloneFragments[fragmentHash] = new List<CodeEntry>();
+            }
+            cloneFragments[fragmentHash].Add(entry);
+        }
+
+        // Identify reusable candidates
+        foreach (var pair in cloneFragments)
+        {
+            if (pair.Value.Count > 1) // Repeated fragments
+            {
+                var fragment = pair.Value.First();
+                var reuseScore = pair.Value.Count * fragment.Fragment.Length;
+
+                reusableCandidates[pair.Key] = new ReusableCandidate
+                {
+                    Fragment = fragment.Fragment,
+                    Files = pair.Value.Select(e => e.FirstFile.Name).ToList(),
+                    ReuseScore = reuseScore
+                };
+            }
+        }
+
+        // Output results
+        Console.WriteLine("False Positives:");
+        foreach (var fp in falsePositives)
+        {
+            Console.WriteLine($"File: {fp.FirstFile.Name}");
+            Console.WriteLine($"Fragment:\n{fp.Fragment}");
+            Console.WriteLine(new string('-', 60));
+        }
+
+        Console.WriteLine("\nTop Reusable Components (Ranked by Reuse Score):");
+        foreach (var candidate in reusableCandidates.Values.OrderByDescending(c => c.ReuseScore).Take(10)) // Top 10
+        {
+            Console.WriteLine($"Code Fragment:\n{candidate.Fragment}");
+            Console.WriteLine($"Found in Files: {string.Join(", ", candidate.Files)}");
+            Console.WriteLine($"Reuse Score: {candidate.ReuseScore}");
+            Console.WriteLine(new string('-', 60));
+        }
+
+        Console.WriteLine("\nAll Clone Fragments (Grouped):");
+        foreach (var pair in cloneFragments)
+        {
+            if (pair.Value.Count > 1) // Clones only
+            {
+                Console.WriteLine($"Code Fragment (Hash: {pair.Key}):\n{pair.Value.First().Fragment}");
+                Console.WriteLine($"Cloned in Files: {string.Join(", ", pair.Value.Select(e => e.FirstFile.Name))}");
+                Console.WriteLine(new string('-', 60));
+            }
+        }
+    }
+
+    // Normalize a code fragment by removing extra whitespace
+    static string NormalizeFragment(string fragment)
+    {
+        return string.Join(" ", fragment.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    // Generate a hash for a code fragment
+    static string HashFragment(string fragment)
+    {
+        using (var md5 = MD5.Create())
+        {
+            var hashBytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(fragment));
+            return BitConverter.ToString(hashBytes).Replace("-", "").ToLower();
+        }
+    }
+}
+
+// Classes for JSON parsing and reusable candidates
+public class CodeEntry
+{
+    public string Format { get; set; }
+    public int Lines { get; set; }
+    public string Fragment { get; set; }
+    public int Tokens { get; set; }
+    public FileDetail FirstFile { get; set; }
+}
+
+public class FileDetail
+{
+    public string Name { get; set; }
+    public int Start { get; set; }
+    public int End { get; set; }
+    public Location StartLoc { get; set; }
+    public Location EndLoc { get; set; }
+}
+
+public class Location
+{
+    public int Line { get; set; }
+    public int Column { get; set; }
+    public int Position { get; set; }
+}
+
+public class ReusableCandidate
+{
+    public string Fragment { get; set; }
+    public List<string> Files { get; set; }
+    public int ReuseScore { get; set; }
+}
