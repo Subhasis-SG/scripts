@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
+using System.Linq;
 
 class Program
 {
@@ -39,44 +40,18 @@ class Program
     static void Main(string[] args)
     {
         string filePath = "path_to_your_json_file.json";  // Specify your JSON file path here
+
+        // Load and process JSON file
         var jsonData = ReadJsonFile(filePath);
-        
-        var clones = FindClones(jsonData.Duplicates);
-        var reusableComponents = FindReusableComponents(jsonData.Duplicates);
-        var falsePositives = DetectFalsePositives(jsonData.Duplicates);
+        Console.WriteLine("Processing duplicates...");
 
-        // Display Clones
-        Console.WriteLine("Found Clones:");
-        foreach (var clone in clones)
-        {
-            Console.WriteLine($"Fragment: {clone.Fragment.Substring(0, 50)}...");
-            Console.WriteLine($"Occurrences: {clone.Value.Count}");
-            foreach (var item in clone.Value)
-            {
-                Console.WriteLine($"  First File: {item.FirstFile.Name} -> Second File: {item.SecondFile.Name}");
-            }
-            Console.WriteLine();
-        }
+        // Find clones, reusable components, and false positives in parallel
+        var (clones, reusableComponents, falsePositives) = ProcessDuplicates(jsonData.Duplicates);
 
-        // Display Reusable Components
-        Console.WriteLine("Found Reusable Components:");
-        foreach (var component in reusableComponents)
-        {
-            Console.WriteLine($"Fragment: {component.Fragment.Substring(0, 50)}...");
-            Console.WriteLine($"First File: {component.FirstFile.Name}");
-            Console.WriteLine($"Second File: {component.SecondFile.Name}");
-            Console.WriteLine();
-        }
-
-        // Display False Positives
-        Console.WriteLine("Detected False Positives:");
-        foreach (var fp in falsePositives)
-        {
-            Console.WriteLine($"Fragment: {fp.Fragment.Substring(0, 50)}...");
-            Console.WriteLine($"First File: {fp.FirstFile.Name}");
-            Console.WriteLine($"Second File: {fp.SecondFile.Name}");
-            Console.WriteLine();
-        }
+        // Display Results
+        DisplayResults("Found Clones", clones);
+        DisplayResults("Found Reusable Components", reusableComponents);
+        DisplayResults("Detected False Positives", falsePositives);
     }
 
     static JsonData ReadJsonFile(string filePath)
@@ -85,50 +60,75 @@ class Program
         return JsonConvert.DeserializeObject<JsonData>(jsonContent);
     }
 
-    static Dictionary<string, List<Duplicate>> FindClones(List<Duplicate> duplicates)
+    // Efficiently processes duplicates
+    static (Dictionary<string, List<Duplicate>>, List<Duplicate>, List<Duplicate>) ProcessDuplicates(List<Duplicate> duplicates)
     {
         var cloneMap = new Dictionary<string, List<Duplicate>>();
-
-        foreach (var duplication in duplicates)
-        {
-            string fragment = duplication.Fragment;
-            if (!cloneMap.ContainsKey(fragment))
-            {
-                cloneMap[fragment] = new List<Duplicate>();
-            }
-            cloneMap[fragment].Add(duplication);
-        }
-
-        return cloneMap;
-    }
-
-    static List<Duplicate> FindReusableComponents(List<Duplicate> duplicates)
-    {
         var reusableComponents = new List<Duplicate>();
-
-        foreach (var duplication in duplicates)
-        {
-            if (duplication.FirstFile.Name != duplication.SecondFile.Name)
-            {
-                reusableComponents.Add(duplication);
-            }
-        }
-
-        return reusableComponents;
-    }
-
-    static List<Duplicate> DetectFalsePositives(List<Duplicate> duplicates)
-    {
         var falsePositives = new List<Duplicate>();
 
         foreach (var duplication in duplicates)
         {
-            if (duplication.Fragment.TrimStart().StartsWith("//"))
+            // Null check for Fragment
+            if (duplication.Fragment != null)
+            {
+                // Find clones (group by code fragment)
+                if (!cloneMap.ContainsKey(duplication.Fragment))
+                {
+                    cloneMap[duplication.Fragment] = new List<Duplicate>();
+                }
+                cloneMap[duplication.Fragment].Add(duplication);
+            }
+
+            // Identify reusable components (cross-file fragments)
+            if (duplication.FirstFile?.Name != duplication.SecondFile?.Name)
+            {
+                reusableComponents.Add(duplication);
+            }
+
+            // Detect false positives (e.g., comment-only fragments)
+            if (!string.IsNullOrWhiteSpace(duplication.Fragment) && duplication.Fragment.TrimStart().StartsWith("//"))
             {
                 falsePositives.Add(duplication);
             }
         }
 
-        return falsePositives;
+        return (cloneMap, reusableComponents, falsePositives);
+    }
+
+    // Display results efficiently
+    static void DisplayResults(string title, Dictionary<string, List<Duplicate>> result)
+    {
+        Console.WriteLine($"\n{title}:");
+        foreach (var clone in result)
+        {
+            // Null check for Fragment key
+            if (clone.Key != null)
+            {
+                Console.WriteLine($"Fragment: {clone.Key.Substring(0, Math.Min(clone.Key.Length, 50))}...");
+                Console.WriteLine($"Occurrences: {clone.Value.Count}");
+                foreach (var item in clone.Value)
+                {
+                    Console.WriteLine($"  First File: {item.FirstFile?.Name} -> Second File: {item.SecondFile?.Name}");
+                }
+                Console.WriteLine();
+            }
+        }
+    }
+
+    static void DisplayResults(string title, List<Duplicate> result)
+    {
+        Console.WriteLine($"\n{title}:");
+        foreach (var item in result)
+        {
+            // Null check for Fragment
+            if (item.Fragment != null)
+            {
+                Console.WriteLine($"Fragment: {item.Fragment.Substring(0, Math.Min(item.Fragment.Length, 50))}...");
+                Console.WriteLine($"First File: {item.FirstFile?.Name}");
+                Console.WriteLine($"Second File: {item.SecondFile?.Name}");
+                Console.WriteLine();
+            }
+        }
     }
 }
