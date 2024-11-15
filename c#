@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
-using System.Linq;
 
 class Program
 {
@@ -105,13 +104,17 @@ class Program
             // Null check for Fragment key
             if (clone.Key != null)
             {
+                // Print only first 50 characters of the Fragment to avoid large output
                 Console.WriteLine($"Fragment: {clone.Key.Substring(0, Math.Min(clone.Key.Length, 50))}...");
                 Console.WriteLine($"Occurrences: {clone.Value.Count}");
+
+                // Print file details
                 foreach (var item in clone.Value)
                 {
                     Console.WriteLine($"  First File: {item.FirstFile?.Name} -> Second File: {item.SecondFile?.Name}");
+                    Console.WriteLine($"  Fragment (preview): {item.Fragment?.Substring(0, 50)}...");
+                    Console.WriteLine();
                 }
-                Console.WriteLine();
             }
         }
     }
@@ -124,6 +127,7 @@ class Program
             // Null check for Fragment
             if (item.Fragment != null)
             {
+                // Print fragment preview (only first 50 characters)
                 Console.WriteLine($"Fragment: {item.Fragment.Substring(0, Math.Min(item.Fragment.Length, 50))}...");
                 Console.WriteLine($"First File: {item.FirstFile?.Name}");
                 Console.WriteLine($"Second File: {item.SecondFile?.Name}");
