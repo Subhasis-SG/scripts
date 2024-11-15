@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
+using System.Linq;
 
 class Program
 {
@@ -38,19 +39,38 @@ class Program
 
     static void Main(string[] args)
     {
-        string filePath = "path_to_your_json_file.json";  // Specify your JSON file path here
+        string filePath = "output.txt";  // Specify your output file path
 
-        // Load and process JSON file
-        var jsonData = ReadJsonFile(filePath);
-        Console.WriteLine("Processing duplicates...");
+        // Open or create the file to write the output
+        using (StreamWriter writer = new StreamWriter(filePath))
+        {
+            // Redirect Console output to file
+            Console.SetOut(writer);
 
-        // Find clones, reusable components, and false positives in parallel
-        var (clones, reusableComponents, falsePositives) = ProcessDuplicates(jsonData.Duplicates);
+            // Load and process the JSON file
+            string jsonFilePath = "path_to_your_json_file.json";  // Specify your JSON file path here
+            var jsonData = ReadJsonFile(jsonFilePath);
+            Console.WriteLine("Processing duplicates...");
 
-        // Display Results
-        DisplayResults("Found Clones", clones);
-        DisplayResults("Found Reusable Components", reusableComponents);
-        DisplayResults("Detected False Positives", falsePositives);
+            // Process duplicates in parallel
+            var (clones, reusableComponents, falsePositives) = ProcessDuplicates(jsonData.Duplicates);
+
+            // Display detailed results
+            DisplayResults("Found Clones", clones);
+            DisplayResults("Found Reusable Components", reusableComponents);
+            DisplayResults("Detected False Positives", falsePositives);
+
+            // Display the counts
+            Console.WriteLine($"\nTotal Clones Found: {clones.Count}");
+            Console.WriteLine($"Total Reusable Components Found: {reusableComponents.Count}");
+            Console.WriteLine($"Total False Positives Found: {falsePositives.Count}");
+
+            // Inform the user that the output has been written to the file
+            Console.WriteLine($"\nResults written to {filePath}");
+        }
+
+        // Optionally, open the file after processing is done
+        System.Diagnostics.Process.Start("notepad.exe", filePath);
     }
 
     static JsonData ReadJsonFile(string filePath)
@@ -95,42 +115,49 @@ class Program
         return (cloneMap, reusableComponents, falsePositives);
     }
 
-    // Display results efficiently
+    // Display detailed results (Clones grouped by Fragment)
     static void DisplayResults(string title, Dictionary<string, List<Duplicate>> result)
     {
         Console.WriteLine($"\n{title}:");
+        int count = 1;
         foreach (var clone in result)
         {
             // Null check for Fragment key
             if (clone.Key != null)
             {
-                // Print only first 50 characters of the Fragment to avoid large output
-                Console.WriteLine($"Fragment: {clone.Key.Substring(0, Math.Min(clone.Key.Length, 50))}...");
+                Console.WriteLine($"\n--- Clone {count++}:");
+                Console.WriteLine($"Fragment: {clone.Key}");
                 Console.WriteLine($"Occurrences: {clone.Value.Count}");
 
-                // Print file details
                 foreach (var item in clone.Value)
                 {
                     Console.WriteLine($"  First File: {item.FirstFile?.Name} -> Second File: {item.SecondFile?.Name}");
-                    Console.WriteLine($"  Fragment (preview): {item.Fragment?.Substring(0, 50)}...");
+                    Console.WriteLine($"  Fragment: {item.Fragment}");
                     Console.WriteLine();
                 }
             }
         }
     }
 
+    // Display detailed results for Reusable Components & False Positives
     static void DisplayResults(string title, List<Duplicate> result)
     {
         Console.WriteLine($"\n{title}:");
+        int count = 1;
         foreach (var item in result)
         {
             // Null check for Fragment
             if (item.Fragment != null)
             {
-                // Print fragment preview (only first 50 characters)
-                Console.WriteLine($"Fragment: {item.Fragment.Substring(0, Math.Min(item.Fragment.Length, 50))}...");
+                Console.WriteLine($"\n--- {title.Split(' ')[1]} {count++}:");
+                Console.WriteLine($"Fragment: {item.Fragment}");
                 Console.WriteLine($"First File: {item.FirstFile?.Name}");
                 Console.WriteLine($"Second File: {item.SecondFile?.Name}");
+
+                if (title == "Detected False Positives")
+                {
+                    Console.WriteLine("This is a comment-based fragment (false positive).");
+                }
                 Console.WriteLine();
             }
         }
