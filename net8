@@ -1,0 +1,151 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+
+namespace CodeDuplicationAnalyzer;
+
+class Program
+{
+    static async Task Main()
+    {
+        string jsonFilePath = "code_duplication_results.json"; // Update with your file path
+
+        if (!File.Exists(jsonFilePath))
+        {
+            Console.WriteLine($"Error: File '{jsonFilePath}' not found.");
+            return;
+        }
+
+        // Load and parse JSON
+        string jsonData = await File.ReadAllTextAsync(jsonFilePath);
+        var entries = JsonSerializer.Deserialize<List<CodeEntry>>(jsonData, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        if (entries == null || !entries.Any())
+        {
+            Console.WriteLine("No data found in the JSON file.");
+            return;
+        }
+
+        // Containers for results
+        var falsePositives = new List<CodeEntry>();
+        var cloneFragments = new Dictionary<string, List<CodeEntry>>();
+        var reusableCandidates = new Dictionary<string, ReusableCandidate>();
+
+        // Regex for false positives (e.g., mock/test code)
+        var falsePositiveRegex = new Regex(@"mock|test|setup|demo|fixture", RegexOptions.IgnoreCase);
+
+        foreach (var entry in entries)
+        {
+            string normalizedFragment = NormalizeFragment(entry.Fragment);
+
+            // Identify false positives
+            if (falsePositiveRegex.IsMatch(normalizedFragment))
+            {
+                falsePositives.Add(entry);
+                continue;
+            }
+
+            // Hash the code fragment
+            string fragmentHash = HashFragment(normalizedFragment);
+
+            // Group by hash
+            if (!cloneFragments.ContainsKey(fragmentHash))
+            {
+                cloneFragments[fragmentHash] = new List<CodeEntry>();
+            }
+            cloneFragments[fragmentHash].Add(entry);
+        }
+
+        // Identify reusable candidates
+        foreach (var pair in cloneFragments)
+        {
+            if (pair.Value.Count > 1) // Repeated fragments
+            {
+                var fragment = pair.Value.First();
+                var reuseScore = pair.Value.Count * fragment.Fragment.Length;
+
+                reusableCandidates[pair.Key] = new ReusableCandidate(
+                    Fragment: fragment.Fragment,
+                    Files: pair.Value.Select(e => e.FirstFile.Name).ToList(),
+                    ReuseScore: reuseScore
+                );
+            }
+        }
+
+        // Display results
+        DisplayResults(falsePositives, reusableCandidates, cloneFragments);
+    }
+
+    // Normalize the fragment by removing extra whitespace
+    static string NormalizeFragment(string fragment) =>
+        string.Join(" ", fragment.Split(new[] { ' ', '\n', '\r', '\t' }, StringSplitOptions.RemoveEmptyEntries));
+
+    // Generate MD5 hash for the code fragment
+    static string HashFragment(string fragment)
+    {
+        using var md5 = MD5.Create();
+        var hashBytes = md5.ComputeHash(Encoding.UTF8.GetBytes(fragment));
+        return Convert.ToHexString(hashBytes).ToLower();
+    }
+
+    // Display analysis results
+    static void DisplayResults(List<CodeEntry> falsePositives, Dictionary<string, ReusableCandidate> reusableCandidates, Dictionary<string, List<CodeEntry>> cloneFragments)
+    {
+        Console.WriteLine("== False Positives ==");
+        foreach (var fp in falsePositives)
+        {
+            Console.WriteLine($"File: {fp.FirstFile.Name}");
+            Console.WriteLine($"Fragment:\n{fp.Fragment}");
+            Console.WriteLine(new string('-', 60));
+        }
+
+        Console.WriteLine("\n== Top Reusable Components ==");
+        foreach (var candidate in reusableCandidates.Values.OrderByDescending(c => c.ReuseScore).Take(10)) // Top 10
+        {
+            Console.WriteLine($"Code Fragment:\n{candidate.Fragment}");
+            Console.WriteLine($"Found in Files: {string.Join(", ", candidate.Files)}");
+            Console.WriteLine($"Reuse Score: {candidate.ReuseScore}");
+            Console.WriteLine(new string('-', 60));
+        }
+
+        Console.WriteLine("\n== Clone Fragments ==");
+        foreach (var pair in cloneFragments.Where(pair => pair.Value.Count > 1)) // Only clones
+        {
+            Console.WriteLine($"Fragment:\n{pair.Value.First().Fragment}");
+            Console.WriteLine($"Cloned in Files: {string.Join(", ", pair.Value.Select(e => e.FirstFile.Name))}");
+            Console.WriteLine(new string('-', 60));
+        }
+    }
+}
+
+// Record types for data models
+record CodeEntry(
+    string Format,
+    int Lines,
+    string Fragment,
+    int Tokens,
+    FileDetail FirstFile
+);
+
+record FileDetail(
+    string Name,
+    int Start,
+    int End,
+    Location StartLoc,
+    Location EndLoc
+);
+
+record Location(
+    int Line,
+    int Column,
+    int Position
+);
+
+record ReusableCandidate(
+    string Fragment,
+    List<string> Files,
+    int ReuseScore
+);
