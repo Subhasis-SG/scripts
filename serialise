@@ -30,30 +30,23 @@ class Program
             // Regular expression to match False Positive entries
             Regex falsePositiveRegex = new Regex(@"--- False Positive (\d+):", RegexOptions.Compiled);
 
-            // Retrieve all paragraphs
-            var paragraphs = body.Elements<Paragraph>().ToList();
-
-            // List to store matched False Positive entries
-            var matches = paragraphs
-                .Select(p => new
-                {
-                    Paragraph = p,
-                    Match = falsePositiveRegex.Match(p.InnerText)
-                })
-                .Where(x => x.Match.Success)
-                .ToList();
-
-            // Renumber False Positive entries
+            // Counter for the new numbering
             int newNumber = 1;
-            foreach (var item in matches)
+
+            // Iterate through all paragraphs
+            foreach (var paragraph in body.Elements<Paragraph>())
             {
-                // Update the serial number
-                string updatedText = falsePositiveRegex.Replace(item.Paragraph.InnerText, $"--- False Positive {newNumber++}:");
-                item.Paragraph.RemoveAllChildren<Run>();
-                item.Paragraph.Append(new Run(new Text(updatedText)));
+                foreach (var textElement in paragraph.Elements<Run>().SelectMany(run => run.Elements<Text>()))
+                {
+                    if (falsePositiveRegex.IsMatch(textElement.Text))
+                    {
+                        // Replace the numbering with the correct sequence
+                        textElement.Text = falsePositiveRegex.Replace(textElement.Text, $"--- False Positive {newNumber++}:");
+                    }
+                }
             }
 
-            // Save changes to the document
+            // Save the updated document
             wordDoc.MainDocumentPart.Document.Save();
         }
 
