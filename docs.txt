@@ -1,0 +1,58 @@
+# Input and output file paths
+$inputFile = "C:\path\to\your\input.docx"  # Replace with your input file path
+$outputFile = "C:\path\to\your\output.docx"  # Replace with your output file path
+
+# Create a Word Application object
+$word = New-Object -ComObject Word.Application
+$word.Visible = $false
+
+# Open the document
+$doc = $word.Documents.Open($inputFile)
+
+# Initialize False Positive Counter
+$falsePositiveCounter = 0
+
+# Iterate over paragraphs in the document
+foreach ($paragraph in $doc.Paragraphs) {
+    $text = $paragraph.Range.Text.Trim()
+
+    # Format "False positive" numbering
+    if ($text -like "--- False positive*") {
+        $falsePositiveCounter++
+        $newText = "--- **False positive $falsePositiveCounter:**"
+        $paragraph.Range.Text = $newText
+    }
+
+    # Bold "First File" and its path
+    if ($text -like "First File:*") {
+        $parts = $text -split ":"
+        if ($parts.Length -gt 1) {
+            $label = $parts[0].Trim() + ": "
+            $path = $parts[1].Trim()
+            $paragraph.Range.Text = $label + $path
+            $paragraph.Range.Words.Item(1).Font.Bold = $true
+            $paragraph.Range.Text = $paragraph.Range.Text.Replace($path, $path)
+            $paragraph.Range.Font.Bold = $true
+        }
+    }
+
+    # Bold "Second File" and its path
+    if ($text -like "Second File:*") {
+        $parts = $text -split ":"
+        if ($parts.Length -gt 1) {
+            $label = $parts[0].Trim() + ": "
+            $path = $parts[1].Trim()
+            $paragraph.Range.Text = $label + $path
+            $paragraph.Range.Words.Item(1).Font.Bold = $true
+            $paragraph.Range.Text = $paragraph.Range.Text.Replace($path, $path)
+            $paragraph.Range.Font.Bold = $true
+        }
+    }
+}
+
+# Save and close the document
+$doc.SaveAs([ref] $outputFile)
+$doc.Close()
+$word.Quit()
+
+Write-Host "Formatted document saved at: $outputFile"
