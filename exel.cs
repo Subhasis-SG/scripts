@@ -144,11 +144,27 @@ class Program
         int row = 2;
         foreach (var item in duplicates)
         {
+            string fragment = item.Fragment;
+            // Split or truncate long fragments to avoid the 32,767 character limit
+            if (fragment.Length > 32767)
+            {
+                fragment = fragment.Substring(0, 32767); // Truncate to the max length allowed
+            }
+
             sheet.Cell(row, 1).Value = row - 1;
-            sheet.Cell(row, 2).Value = item.Fragment;
+            sheet.Cell(row, 2).Value = fragment;
             sheet.Cell(row, 3).Value = item.FirstFile?.Name;
             sheet.Cell(row, 4).Value = item.SecondFile?.Name;
             row++;
+
+            // If fragment is too long, split it across multiple rows
+            int startPos = 32767;
+            while (startPos < fragment.Length)
+            {
+                sheet.Cell(row, 2).Value = fragment.Substring(startPos, Math.Min(32767, fragment.Length - startPos));
+                row++;
+                startPos += 32767;
+            }
         }
 
         // Adjust column widths
