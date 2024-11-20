@@ -1,0 +1,62 @@
+using System;
+using System.IO;
+using System.Linq;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Wordprocessing;
+using System.Text.RegularExpressions;
+
+class Program
+{
+    static void Main(string[] args)
+    {
+        string filePath = "test.docx"; // Path to your .docx file
+        FixFalsePositiveNumbers(filePath);
+    }
+
+    static void FixFalsePositiveNumbers(string filePath)
+    {
+        // Open the Word document
+        using (WordprocessingDocument wordDoc = WordprocessingDocument.Open(filePath, true))
+        {
+            // Get the document's main body content
+            Body body = wordDoc.MainDocumentPart.Document.Body;
+
+            if (body == null)
+            {
+                Console.WriteLine("Document is empty or invalid.");
+                return;
+            }
+
+            // Regular expression to match False Positive entries
+            Regex falsePositiveRegex = new Regex(@"--- False Positive (\d+):", RegexOptions.Compiled);
+
+            // Retrieve all paragraphs
+            var paragraphs = body.Elements<Paragraph>().ToList();
+
+            // List to store matched False Positive entries
+            var matches = paragraphs
+                .Select(p => new
+                {
+                    Paragraph = p,
+                    Match = falsePositiveRegex.Match(p.InnerText)
+                })
+                .Where(x => x.Match.Success)
+                .ToList();
+
+            // Renumber False Positive entries
+            int newNumber = 1;
+            foreach (var item in matches)
+            {
+                // Update the serial number
+                string updatedText = falsePositiveRegex.Replace(item.Paragraph.InnerText, $"--- False Positive {newNumber++}:");
+                item.Paragraph.RemoveAllChildren<Run>();
+                item.Paragraph.Append(new Run(new Text(updatedText)));
+            }
+
+            // Save changes to the document
+            wordDoc.MainDocumentPart.Document.Save();
+        }
+
+        Console.WriteLine("False Positive numbers corrected successfully.");
+    }
+}
