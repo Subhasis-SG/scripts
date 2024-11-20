@@ -136,9 +136,7 @@ class Program
     {
         // Header
         sheet.Cell(1, 1).Value = "ID";
-        sheet.Cell(1, 2).Value = "Fragment";
-        sheet.Cell(1, 3).Value = "First File Name";
-        sheet.Cell(1, 4).Value = "Second File Name";
+        sheet.Cell(1, 2).Value = "Fragment and File Names";
 
         // Write data
         int row = 2;
@@ -151,14 +149,22 @@ class Program
                 fragment = fragment.Substring(0, 32767); // Truncate to the max length allowed
             }
 
-            sheet.Cell(row, 1).Value = row - 1;
-            sheet.Cell(row, 2).Value = fragment;
-            sheet.Cell(row, 3).Value = item.FirstFile?.Name;
-            sheet.Cell(row, 4).Value = item.SecondFile?.Name;
+            // Create the value for the combined cell
+            string combinedValue = $"{fragment}\n\n" +
+                                   $"First File: {item.FirstFile?.Name}\n" +
+                                   $"Last File: {item.SecondFile?.Name}";
 
-            // Apply bold formatting to the first and last file name cells
-            sheet.Cell(row, 3).Style.Font.Bold = true;  // First File Name
-            sheet.Cell(row, 4).Style.Font.Bold = true;  // Second File Name
+            var cell = sheet.Cell(row, 2);
+            cell.Value = combinedValue;
+
+            // Apply bold formatting to the file names
+            var firstFileBoldRange = cell.RichText[1].AddText(item.FirstFile?.Name ?? "");
+            firstFileBoldRange.Style.Font.Bold = true;
+
+            var lastFileBoldRange = cell.RichText[1].AddText(item.SecondFile?.Name ?? "");
+            lastFileBoldRange.Style.Font.Bold = true;
+
+            sheet.Cell(row, 1).Value = row - 1;  // Add ID in the first column
 
             row++;
 
