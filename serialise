@@ -10,11 +10,25 @@ class Program
     static void Main(string[] args)
     {
         string filePath = "test.docx"; // Path to your .docx file
-        FixFalsePositiveNumbers(filePath);
+        try
+        {
+            FixFalsePositiveNumbers(filePath);
+            Console.WriteLine("False Positive numbers corrected successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"An error occurred: {ex.Message}");
+        }
     }
 
     static void FixFalsePositiveNumbers(string filePath)
     {
+        // Ensure the file exists
+        if (!File.Exists(filePath))
+        {
+            throw new FileNotFoundException("The specified file was not found.");
+        }
+
         // Open the Word document
         using (WordprocessingDocument wordDoc = WordprocessingDocument.Open(filePath, true))
         {
@@ -23,8 +37,7 @@ class Program
 
             if (body == null)
             {
-                Console.WriteLine("Document is empty or invalid.");
-                return;
+                throw new InvalidOperationException("The document body is empty.");
             }
 
             // Regular expression to match False Positive entries
@@ -33,15 +46,19 @@ class Program
             // Counter for the new numbering
             int newNumber = 1;
 
-            // Iterate through all paragraphs
-            foreach (var paragraph in body.Elements<Paragraph>())
+            // Iterate through all paragraphs in the document body
+            foreach (var paragraph in body.Descendants<Paragraph>())
             {
-                foreach (var textElement in paragraph.Elements<Run>().SelectMany(run => run.Elements<Text>()))
+                foreach (var run in paragraph.Elements<Run>())
                 {
-                    if (falsePositiveRegex.IsMatch(textElement.Text))
+                    foreach (var text in run.Elements<Text>())
                     {
-                        // Replace the numbering with the correct sequence
-                        textElement.Text = falsePositiveRegex.Replace(textElement.Text, $"--- False Positive {newNumber++}:");
+                        // Check if the text matches the "False Positive" pattern
+                        if (falsePositiveRegex.IsMatch(text.Text))
+                        {
+                            // Replace the numbering with the correct sequence
+                            text.Text = falsePositiveRegex.Replace(text.Text, $"--- False Positive {newNumber++}:");
+                        }
                     }
                 }
             }
@@ -49,7 +66,5 @@ class Program
             // Save the updated document
             wordDoc.MainDocumentPart.Document.Save();
         }
-
-        Console.WriteLine("False Positive numbers corrected successfully.");
     }
 }
