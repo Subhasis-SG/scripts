@@ -52,7 +52,7 @@ class Program
             var jsonData = ReadJsonFile(jsonFilePath);
             Console.WriteLine("Processing duplicates...");
 
-            // Process duplicates in parallel
+            // Process duplicates
             var (reusableComponents, falsePositives) = ProcessDuplicates(jsonData.Duplicates);
 
             // Display detailed results
@@ -77,7 +77,6 @@ class Program
         return JsonConvert.DeserializeObject<JsonData>(jsonContent);
     }
 
-    // Efficiently processes duplicates
     static (List<Duplicate>, List<Duplicate>) ProcessDuplicates(List<Duplicate> duplicates)
     {
         var reusableComponents = new List<Duplicate>();
@@ -85,8 +84,9 @@ class Program
 
         foreach (var duplication in duplicates)
         {
-            // Identify reusable components (cross-file fragments)
-            if (duplication.FirstFile?.Name != duplication.SecondFile?.Name)
+            // Check for reusable components (cross-file fragments with brackets and repeated content)
+            if (duplication.FirstFile?.Name != duplication.SecondFile?.Name &&
+                ContainsBrackets(duplication.Fragment) && IsRepeatedFragment(duplication, duplicates))
             {
                 reusableComponents.Add(duplication);
             }
@@ -101,8 +101,24 @@ class Program
         return (reusableComponents, falsePositives);
     }
 
-    // Checks if the fragment is a false positive (e.g., comment-based or "global using")
-       // Checks if the fragment is a false positive
+    // Check if the fragment contains brackets '{' or '}'
+    static bool ContainsBrackets(string fragment)
+    {
+        if (string.IsNullOrWhiteSpace(fragment))
+            return false;
+
+        return fragment.Contains("{") || fragment.Contains("}");
+    }
+
+    // Check if the fragment is repeated across multiple duplicates
+    static bool IsRepeatedFragment(Duplicate duplication, List<Duplicate> duplicates)
+    {
+        return duplicates.Count(d =>
+            d.Fragment == duplication.Fragment &&
+            d.FirstFile?.Name != d.SecondFile?.Name) > 1; // Count instances of the same fragment across files
+    }
+
+    // Checks if the fragment is a false positive
     static bool IsFalsePositive(string fragment)
     {
         if (string.IsNullOrWhiteSpace(fragment))
@@ -146,7 +162,6 @@ class Program
         return false;
     }
 
-
     // Display detailed results for Reusable Components & False Positives
     static void DisplayResults(string title, List<Duplicate> result)
     {
@@ -170,4 +185,3 @@ class Program
         }
     }
 }
-
