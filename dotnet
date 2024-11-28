@@ -1,0 +1,379 @@
+Here are the three files, organized and ready for packaging:
+
+1. ResponseStatus.cs
+csharp
+Copy code
+namespace YourNamespace.Models
+{
+    /// <summary>
+    /// Represents the status of an API response.
+    /// </summary>
+    public enum ResponseStatus
+    {
+        Success,
+        Failed,
+        Unauthorized,
+        ValidationError,
+        NotFound,
+        Forbidden,
+        BadRequest,
+        Error,
+        Conflict,
+        InternalServerError
+    }
+}
+2. ApiResponseModel.cs
+csharp
+Copy code
+using System.Collections.Generic;
+
+namespace YourNamespace.Models
+{
+    /// <summary>
+    /// Represents a standardized structure for API responses.
+    /// </summary>
+    public class ApiResponseModel
+    {
+        /// <summary>
+        /// The status of the response.
+        /// </summary>
+        public ResponseStatus Status { get; set; }
+
+        /// <summary>
+        /// A human-readable message describing the response.
+        /// </summary>
+        public string Message { get; set; }
+
+        /// <summary>
+        /// The data or details associated with the response.
+        /// </summary>
+        public object Data { get; set; }
+
+        /// <summary>
+        /// Initializes the response with an empty data collection by default.
+        /// </summary>
+        public ApiResponseModel()
+        {
+            Data = new List<string>();
+        }
+    }
+}
+3. ExceptionMiddlewareExtensions.cs
+csharp
+Copy code
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics;
+using Microsoft.AspNetCore.Http;
+using System.Net;
+using System.Text.Json;
+using YourNamespace.Models;
+using NLog;
+using System.Collections.Generic;
+
+namespace YourNamespace.Extensions
+{
+    /// <summary>
+    /// Provides an extension method for global exception handling middleware.
+    /// </summary>
+    public static class ExceptionMiddlewareExtensions
+    {
+        /// <summary>
+        /// Configures a centralized exception handler that logs errors and returns standardized responses.
+        /// </summary>
+        /// <param name="app">The application builder.</param>
+        /// <param name="logger">The logger instance for logging exceptions.</param>
+        public static void ConfigureExceptionHandler(this IApplicationBuilder app, Logger logger)
+        {
+            app.UseExceptionHandler(errorApp =>
+            {
+                errorApp.Run(async context =>
+                {
+                    var contextFeature = context.Features.Get<IExceptionHandlerFeature>();
+                    if (contextFeature != null)
+                    {
+                        // Log the exception
+                        logger.Error($"Path: {context.Request.Path}, Exception: {contextFeature.Error}");
+
+                        // Prepare the response
+                        var response = context.Response;
+                        response.ContentType = "application/json";
+
+                        var errorResponse = new ApiResponseModel();
+                        var errorItems = new List<string>();
+
+                        // Set the appropriate HTTP status code
+                        response.StatusCode = contextFeature.Error switch
+                        {
+                            _ when contextFeature.Error.Message == "CustomValidation" => (int)HttpStatusCode.BadRequest,
+                            _ when contextFeature.Error.Message == "Unauthorized" => (int)HttpStatusCode.Unauthorized,
+                            _ when contextFeature.Error.Message == "NotFound" => (int)HttpStatusCode.NotFound,
+                            _ when contextFeature.Error.Message == "Forbidden" => (int)HttpStatusCode.Forbidden,
+                            _ when contextFeature.Error.Message == "Conflict" => (int)HttpStatusCode.Conflict,
+                            _ => (int)HttpStatusCode.InternalServerError
+                        };
+
+                        // Map status codes to response details
+                        errorResponse.Status = response.StatusCode switch
+                        {
+                            (int)HttpStatusCode.BadRequest => ResponseStatus.ValidationError,
+                            (int)HttpStatusCode.Unauthorized => ResponseStatus.Unauthorized,
+                            (int)HttpStatusCode.NotFound => ResponseStatus.NotFound,
+                            (int)HttpStatusCode.Forbidden => ResponseStatus.Forbidden,
+                            (int)HttpStatusCode.Conflict => ResponseStatus.Conflict,
+                            _ => ResponseStatus.InternalServerError
+                        };
+
+                        errorResponse.Message = response.StatusCode switch
+                        {
+                            (int)HttpStatusCode.BadRequest => "Validation error occurred.",
+                            (int)HttpStatusCode.Unauthorized => "Authorization error.",
+                            (int)HttpStatusCode.NotFound => "The requested resource was not found.",
+                            (int)HttpStatusCode.Forbidden => "Access to the resource is forbidden.",
+                            (int)HttpStatusCode.Conflict => "A conflict occurred.",
+                            _ => "An internal server error occurred."
+                        };
+
+                        // Handle custom validation exceptions
+                        if (contextFeature.Error.Message == "CustomValidation")
+                        {
+                            dynamic validationException = contextFeature.Error;
+                            foreach (var item in validationException.Errors)
+                            {
+                                errorItems.Add(item.ErrorMessage);
+                            }
+                        }
+                        else
+                        {
+                            errorItems.Add(contextFeature.Error.Message);
+                        }
+
+                        errorResponse.Data = errorItems;
+
+                        // Serialize the response and write to output
+                        var result = JsonSerializer.Serialize(errorResponse);
+                        await response.WriteAsync(result);
+                    }
+                });
+            });
+        }
+    }
+}
+Packaging Notes:
+Namespace Replacement: Replace YourNamespace with the appropriate namespace for your application.
+Dependencies: Ensure the NLog package is installed if you're using it for logging. You can add it via NuGet:
+bash
+Copy code
+dotnet add package NLog
+Usage in Program.cs: Add the exception handler to your middleware pipeline:
+csharp
+Copy code
+var logger = NLog.LogManager.GetCurrentClassLogger();
+app.ConfigureExceptionHandler(logger);
+With these files, you should be ready to package and distribute this functionality. Let me know if you need additional assistance!
+
+
+
+
+
+
+You said:
+good write a test program with real examples to test the package
+ChatGPT said:
+ChatGPT
+Here is a test program that demonstrates how to use the exception handling package. This example simulates a minimal ASP.NET Core web application that includes the middleware and triggers a few different exceptions to verify the handling.
+
+Test Program
+Program.cs
+csharp
+Copy code
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using NLog;
+using NLog.Web;
+using YourNamespace.Extensions;
+
+var logger = NLogBuilder.ConfigureNLog("nlog.config").GetCurrentClassLogger();
+
+try
+{
+    var builder = WebApplication.CreateBuilder(args);
+
+    // Add services
+    builder.Services.AddControllers();
+
+    // Build application
+    var app = builder.Build();
+
+    // Configure global exception handling middleware
+    app.ConfigureExceptionHandler(logger);
+
+    // Test routes to simulate exceptions
+    app.MapGet("/success", () => Results.Ok(new { Message = "This request was successful!" }));
+
+    app.MapGet("/validation-error", () =>
+    {
+        throw new Exception("CustomValidation");
+    });
+
+    app.MapGet("/unauthorized", () =>
+    {
+        throw new Exception("Unauthorized");
+    });
+
+    app.MapGet("/not-found", () =>
+    {
+        throw new Exception("NotFound");
+    });
+
+    app.MapGet("/forbidden", () =>
+    {
+        throw new Exception("Forbidden");
+    });
+
+    app.MapGet("/conflict", () =>
+    {
+        throw new Exception("Conflict");
+    });
+
+    app.MapGet("/internal-server-error", () =>
+    {
+        throw new Exception("This is an unexpected error.");
+    });
+
+    app.Run();
+}
+catch (Exception ex)
+{
+    logger.Error(ex, "Application stopped due to an exception.");
+    throw;
+}
+finally
+{
+    NLog.LogManager.Shutdown();
+}
+nlog.config
+This file configures NLog for logging purposes.
+
+xml
+Copy code
+<?xml version="1.0" encoding="utf-8" ?>
+<nlog xmlns="http://www.nlog-project.org/schemas/NLog.xsd"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <targets>
+    <target name="logfile" xsi:type="File" fileName="logfile.log" />
+    <target name="console" xsi:type="Console" />
+  </targets>
+  <rules>
+    <logger name="*" minlevel="Trace" writeTo="logfile" />
+    <logger name="*" minlevel="Trace" writeTo="console" />
+  </rules>
+</nlog>
+Example Test Cases
+1. Test Route: /success
+URL: http://localhost:5000/success
+Expected Response:
+json
+Copy code
+{
+    "Message": "This request was successful!"
+}
+Logs: No exception logged.
+2. Test Route: /validation-error
+URL: http://localhost:5000/validation-error
+Expected Response:
+json
+Copy code
+{
+    "status": "ValidationError",
+    "message": "Validation error occurred.",
+    "data": [
+        "CustomValidation"
+    ]
+}
+Logs: Exception details logged.
+3. Test Route: /unauthorized
+URL: http://localhost:5000/unauthorized
+Expected Response:
+json
+Copy code
+{
+    "status": "Unauthorized",
+    "message": "Authorization error.",
+    "data": [
+        "Unauthorized"
+    ]
+}
+Logs: Exception details logged.
+4. Test Route: /not-found
+URL: http://localhost:5000/not-found
+Expected Response:
+json
+Copy code
+{
+    "status": "NotFound",
+    "message": "The requested resource was not found.",
+    "data": [
+        "NotFound"
+    ]
+}
+Logs: Exception details logged.
+5. Test Route: /forbidden
+URL: http://localhost:5000/forbidden
+Expected Response:
+json
+Copy code
+{
+    "status": "Forbidden",
+    "message": "Access to the resource is forbidden.",
+    "data": [
+        "Forbidden"
+    ]
+}
+Logs: Exception details logged.
+6. Test Route: /conflict
+URL: http://localhost:5000/conflict
+Expected Response:
+json
+Copy code
+{
+    "status": "Conflict",
+    "message": "A conflict occurred.",
+    "data": [
+        "Conflict"
+    ]
+}
+Logs: Exception details logged.
+7. Test Route: /internal-server-error
+URL: http://localhost:5000/internal-server-error
+Expected Response:
+json
+Copy code
+{
+    "status": "InternalServerError",
+    "message": "An internal server error occurred.",
+    "data": [
+        "This is an unexpected error."
+    ]
+}
+Logs: Exception details logged.
+How to Run the Test Program
+Install Dependencies:
+
+Add the following NuGet packages:
+Microsoft.AspNetCore.App
+NLog.Web.AspNetCore
+Use the command:
+
+bash
+Copy code
+dotnet add package NLog.Web.AspNetCore
+Run the Application:
+
+bash
+Copy code
+dotnet run
+Access Test Routes: Open a browser or use a tool like Postman to access the routes and validate the responses.
+
+Check Logs: The logs will be written to logfile.log in the application directory and the console.
+
+This test program ensures the middleware handles all defined scenarios and validates the logging and error responses. Let me know if you need help with further customization!
